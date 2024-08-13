@@ -16,12 +16,19 @@ pub struct PendingRequest {
 pub struct InitializeRequest<'info> {
     #[account(
         init,
-        seeds = [b"pending-request", signer.key().as_ref()],
+        seeds = [b"pending-request", signer.key().as_ref(), cash_account.request_counter.to_le_bytes().as_ref()],
         bump,
         payer = signer,
         space = 8 + PendingRequest::INIT_SPACE
     )]
     pub pending_request: Account<'info, PendingRequest>,
+    #[account(
+        mut,
+        seeds = [b"cash-account", signer.key().as_ref()],
+        bump,
+        close = signer,
+    )]
+    pub cash_account: Account<'info, CashAccount>,
     #[account(mut)]
     pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -39,11 +46,15 @@ pub mod cash_app {
         Ok(())
     }
 
-    pub fn new_request(ctx: Context<InitializeRequest>, sender: Pubkey, amount: u64) -> Result<()> {
+    pub fn new_request(ctx: Context<InitializeRequest>, recipient: Pubkey, amount: u64) -> Result<()> {
+        let cash_account = &mut ctx.accounts.cash_account;
         let pending_request = &mut ctx.accounts.pending_request;
-        pending_request.recipient = *ctx.accounts.signer.key;
-        pending_request.sender = sender;
+        pending_request.sender = *ctx.accounts.signer.key;
+        pending_request.recipient = recipient;
         pending_request.amount = amount;
+        pending_request.id = cash_account.request_counter;
+        cash_account.request_counter += 1;
+
         Ok(())
     }
 
@@ -67,6 +78,7 @@ pub mod cash_app {
         let cash_account = &mut ctx.accounts.cash_account;
         cash_account.owner = *ctx.accounts.signer.key;
         cash_account.friends = Vec::new();
+        cash_account.request_counter = 0;
         Ok(())
     }
 
@@ -223,7 +235,7 @@ pub struct AddFriend<'info> {
 pub struct DeclineRequest<'info> {
     #[account(
         mut,
-        seeds = [b"pending-request", signer.key().as_ref()],
+        seeds = [b"pending-request", signer.key().as_ref(), pending_request.id.to_le_bytes().as_ref()],
         bump,
         close = signer,
     )]
@@ -237,7 +249,7 @@ pub struct DeclineRequest<'info> {
 pub struct AcceptRequest<'info> {
     #[account(
         mut,
-        seeds = [b"pending-request", signer.key().as_ref()],
+        seeds = [b"pending-request", signer.key().as_ref(), pending_request.id.to_le_bytes().as_ref()],
         bump,
         close = signer,
     )]
